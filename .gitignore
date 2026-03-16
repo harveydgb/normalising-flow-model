@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.ipynb_checkpoints/
+
+.venv/
+.env
+m2_env/
+
+logs/
+checkpoints/
+figs/
+results.json
+
+.DS_Store
+
+constraints.md
+instructions.md

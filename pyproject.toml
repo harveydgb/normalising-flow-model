@@ -1,0 +1,22 @@
+[project]
+name = "m2-deep-learning-coursework"
+version = "0.1.0"
+description = "M2 Coursework"
+requires-python = ">=3.10"
+readme = "README.MD"
+
+dependencies = [
+  "torch>=2.0.0",
+  "numpy>=1.24.0",
+  "matplotlib>=3.7.0",
+  "pandas>=2.0.0",
+  "tqdm>=4.0.0",
+  "scikit-learn>=1.3.0",
+  "ipykernel>=6.0.0",
+  "jupyterlab>=4.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
