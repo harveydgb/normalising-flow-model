@@ -1,0 +1,139 @@
+class STNet(nn.Module):
+    """Scale/shift network used inside an affine coupling layer.
+
+    Given the fixed dimensions (shape (B, d_in)), this MLP outputs coupling parameters
+    (s, t) (each shape (B, d_out)) for transforming the other dimensions.
+
+    Notes:
+    - The scale output is bounded with `tanh` for numerical stability.
+    - Dropout is optional and disabled by default (dropout_p=0.0).
+    """
+
+    def __init__(self, d_in, d_out, hidden=64, dropout_p=0.0):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(d_in, hidden),
+            nn.ReLU(),
+            nn.Dropout(float(dropout_p)) if float(dropout_p) > 0 else nn.Identity(),
+            nn.Linear(hidden, 2 * d_out)
+        )
+
+    def forward(self, h_fixed):
+        """Compute coupling parameters.
+
+        Args:
+            h_fixed: Tensor of shape (B, d_in).
+
+        Returns:
+            s: Tensor of shape (B, d_out), bounded via `tanh`.
+            t: Tensor of shape (B, d_out).
+        """
+        st = self.net(h_fixed)
+        s, t = st.chunk(2, dim=-1)
+        s = torch.tanh(s)
+        return s, t
+
+
+class AffineCoupling(nn.Module):
+    """RealNVP-style affine coupling transform for N-D vectors.
+
+    The first half of the dimensions is kept fixed, and the second half is 
+    affine-transformed using parameters produced by `STNet`.
+    """
+
+    def __init__(self, dim, hidden=64, dropout_p=0.0):
+        super().__init__()
+        self.d_fixed = dim // 2
+        self.d_trans = dim - self.d_fixed
+        self.st_net = STNet(d_in=self.d_fixed, d_out=self.d_trans, hidden=hidden, dropout_p=dropout_p)
+
+    def forward(self, z):
+        """Forward map (base z -> data x).
+
+        Args:
+            z: Tensor of shape (B, dim).
+
+        Returns:
+            x: Tensor of shape (B, dim).
+            log_det: Tensor of shape (B,), log|det J_f(z)|.
+        """
+        fixed, trans = z[..., :self.d_fixed], z[..., self.d_fixed:]
+        s, t = self.st_net(fixed)
+        scale = torch.exp(s)
+        out = torch.cat([fixed, trans * scale + t], dim=-1)
+        log_det = s.sum(dim=-1)
+        return out, log_det
+
+    def inverse(self, x):
+        """Inverse map (data x -> base z).
+
+        Args:
+            x: Tensor of shape (B, dim).
+
+        Returns:
+            z: Tensor of shape (B, dim).
+            log_det: Tensor of shape (B,), log|det J_{f^{-1}}(x)|.
+        """
+        fixed, trans = x[..., :self.d_fixed], x[..., self.d_fixed:]
+        s, t = self.st_net(fixed)
+        scale = torch.exp(s)
+        out = torch.cat([fixed, (trans - t) / scale], dim=-1)
+        log_det = -s.sum(dim=-1)
+        return out, log_det
+    
+
+class PermuteND(nn.Module):
+    """Reverse the dimensions. Log-determinant is strictly zero."""
+
+    def forward(self, z):
+        return z.flip(-1), torch.zeros(z.size(0), device=z.device, dtype=z.dtype)
+
+    def inverse(self, x):
+        return x.flip(-1), torch.zeros(x.size(0), device=x.device, dtype=x.dtype)
+
+
+class FlowND(nn.Module):
+    """A normalising flow for N-D data built by stacking coupling layers."""
+
+    def __init__(self, dim, n_layers, hidden, dropout_p=0.0):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        for i in range(n_layers):
+            self.layers.append(AffineCoupling(dim=dim, hidden=hidden, dropout_p=dropout_p))
+            if i < n_layers - 1:
+                self.layers.append(PermuteND())
+
+    def f(self, z):
+        log_det_total = 0.0
+        x = z
+        for layer in self.layers:
+            x, log_det = layer(x)
+            log_det_total = log_det_total + log_det
+        return x, log_det_total
+
+    def f_inv(self, x):
+        log_det_total = 0.0
+        z = x
+        for layer in reversed(self.layers):
+            z, log_det = layer.inverse(z)
+            log_det_total = log_det_total + log_det
+        return z, log_det_total
+
+    def log_prob(self, x):
+        """Compute log p(x) via the change-of-variables formula."""
+        z, log_det_inv = self.f_inv(x)
+        log_p_z = standard_normal_logprob(z)
+        return log_p_z + log_det_inv
+    
+
+def standard_normal_logprob(z):
+    """Log-density under a standard multivariate normal."""
+    d = z.size(-1)
+    return -0.5 * (d * torch.log(torch.tensor(2 * np.pi, device=z.device)) + (z ** 2).sum(dim=-1))
+
+def make_train_loader(x_tensor, batch_size, seed, shuffle=True):
+    """Create a reproducible training DataLoader for tensor-only inputs."""
+    ds = TensorDataset(x_tensor)
+    g = torch.Generator()
+    g.manual_seed(int(seed))
+    return DataLoader(ds, batch_size=int(batch_size), shuffle=shuffle, generator=g)
