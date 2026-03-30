@@ -14,12 +14,30 @@ The coursework involves implementing, training, and testing a Normalizing Flow m
 - `results.json`: A generated JSON file containing the test evaluation metrics and the final written write-up.
 
 ## Usage
-The notebook is designed to be fully reproducible on a CPU-only machine. To run the code:
+The notebook is designed to be fully reproducible on a CPU-only machine.
 
-1. Install the dependencies specified in `pyproject.toml` (e.g. using pip).
-2. Execute the `coursework.ipynb` notebook from top to bottom.
+### Recommended setup (with local virtual environment)
 
-The notebook will automatically generate all required output artifacts in the `figs/`, `checkpoints/`, and `logs/` directories, as well as `results.json`.
+```bash
+python3 -m venv m2_env
+source m2_env/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
+
+### Register a notebook kernel
+
+```bash
+python -m ipykernel install --user --name m2-deep-learning-coursework --display-name "Python (m2-deep-learning-coursework)"
+```
+
+Then open `coursework.ipynb`, select `Python (m2-deep-learning-coursework)` as the kernel, and run the notebook from top to bottom.
+
+The notebook will generate required output artifacts in `figs/`, `checkpoints/`, and `logs/`, plus `results.json`.
+
+### Reproducibility
+
+- The notebook pins execution to CPU (`CUDA_VISIBLE_DEVICES=-1`) and sets a global random seed.
 
 ## Use of Generative Tools
 
